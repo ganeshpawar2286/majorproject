@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Career Preparation Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <main class="shell">
+        <section class="hero">
+            <div>
+                <h1>AI-Based Career Preparation Platform</h1>
+            </div>
+        </section>
+
+        <section class="panel">
+            <form method="post" class="form-grid" enctype="multipart/form-data">
+                <label>
+                    Target Role
+                    <input type="text" name="target_role" value="{{ target_role }}" placeholder="e.g. Data Analyst">
+                </label>
+                <label class="full-width file-field">
+                    Upload Resume
+                    <input type="file" name="resume_file" accept=".pdf,.docx,.txt">
+                    <span>Upload a PDF, DOCX, or TXT resume. The system will read and analyze it automatically.</span>
+                </label>
+                <button type="submit">Analyze Resume</button>
+            </form>
+            {% if uploaded_filename %}
+                <p class="status">Loaded file: {{ uploaded_filename }}</p>
+            {% endif %}
+            {% if error_message %}
+                <p class="error">{{ error_message }}</p>
+            {% endif %}
+        </section>
+
+        {% if analysis %}
+        <section class="panel resume-preview-panel">
+            <h2>Uploaded Resume Preview</h2>
+            <div class="resume-preview-box"><pre>{{ resume_preview }}</pre></div>
+        </section>
+
+        <section class="grid two-col">
+            <article class="card">
+                <h2>Resume Analysis</h2>
+                <p class="metric">Score: {{ analysis.score }}/100</p>
+                <p>Suggested Role: {{ analysis.suggested_role }}</p>
+                <p>Word Count: {{ analysis.word_count }}</p>
+                <h3>Skills</h3>
+                <div class="chips">
+                    {% for skill in analysis.skills %}
+                        <span>{{ skill }}</span>
+                    {% endfor %}
+                </div>
+                <h3>Strengths</h3>
+                <ul>
+                    {% for item in analysis.strengths %}
+                        <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+                <h3>Improvements</h3>
+                <ul>
+                    {% for item in analysis.improvements %}
+                        <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+            </article>
+
+            <article class="card">
+                <h2>Mock Interview Feedback</h2>
+                <p class="metric">Overall: {{ feedback.overall }}/100</p>
+                <p>{{ feedback.content_feedback }}</p>
+                <p>{{ feedback.communication_feedback }}</p>
+                <h3>Next Steps</h3>
+                <ul>
+                    {% for item in feedback.next_steps %}
+                        <li>{{ item }}</li>
+                    {% endfor %}
+                </ul>
+            </article>
+        </section>
+
+        <section class="grid two-col">
+            <article class="card">
+                <h2>Recommended Jobs</h2>
+                {% for job in recommendations %}
+                    <div class="job-item">
+                        <h3>{{ job.title }}</h3>
+                        <p>{{ job.company }} - {{ job.location }}</p>
+                        <p>Match Score: {{ job.match_score }}%</p>
+                        <p>Matched Skills: {{ job.matched_skills | join(', ') if job.matched_skills else 'None' }}</p>
+                        <p>Missing Skills: {{ job.missing_skills | join(', ') if job.missing_skills else 'None' }}</p>
+                    </div>
+                {% endfor %}
+            </article>
+
+            <article class="card">
+                <h2>Mock Interview Questions</h2>
+                <ol>
+                    {% for question in questions %}
+                        <li>{{ question }}</li>
+                    {% endfor %}
+                </ol>
+            </article>
+        </section>
+        {% endif %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
