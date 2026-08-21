@@ -1,0 +1,12 @@
+flask>=2.3.0
+flask-cors>=4.0.0
+spacy>=3.5.0
+nltk>=3.8.0
+scikit-learn>=1.2.0
+sentence-transformers>=2.2.0
+pypdf2>=3.0.0
+python-docx>=0.8.11
+sqlalchemy>=2.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+werkzeug>=2.3.0
