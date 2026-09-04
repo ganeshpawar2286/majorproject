@@ -1,6 +1,6 @@
 import json
 from flask import Blueprint, request, jsonify
-from models.resume_parser import resume_parser
+from backend.models.resume_parser import resume_parser
 from backend.database import SessionLocal, User, ResumeModel
 
 resume_bp = Blueprint("resume", __name__)
@@ -11,14 +11,13 @@ def get_authorized_user_id(db, req):
         user = db.query(User).filter(User.active_token == token).first()
         if user:
             return user.id
-    first_user = db.query(User).first()
-    return first_user.id if first_user else 1
+    return None
 
 @resume_bp.route("/parse", methods=["POST"])
 def parse_resume_route():
     """
     Accepts PDF or DOCX resume upload via multipart form-data, or raw text input via JSON.
-    Supports engine parameter: 'local' (default), 'affinda', 'rchilli', or 'textkernel'.
+    Strictly validates that the document is a Candidate Resume and rejects GST invoices, receipts, bills, etc.
     """
     try:
         extracted_text = ""
@@ -47,6 +46,14 @@ def parse_resume_route():
                 "error": "Could not extract readable text from the uploaded file. Please ensure it is a text-based PDF or DOCX file."
             }), 400
 
+        # STRICT DOCUMENT TYPE CLASSIFICATION & INTENT VALIDATION
+        is_valid, validation_msg = resume_parser.validate_is_resume(extracted_text, filename=filename)
+        if not is_valid:
+            return jsonify({
+                "error": validation_msg,
+                "is_valid_resume": False
+            }), 400
+
         parsed_result = resume_parser.parse_resume(
             extracted_text,
             engine=engine.lower(),
@@ -58,53 +65,45 @@ def parse_resume_route():
         db = SessionLocal()
         try:
             current_user_id = get_authorized_user_id(db, request)
-            new_resume = ResumeModel(
-                user_id=current_user_id,
-                filename=filename,
-                candidate_name=parsed_result["candidate_name"],
-                category=parsed_result["predicted_category"],
-                ats_score=parsed_result["ats_score"],
-                parsed_json=json.dumps(parsed_result)
-            )
-            db.add(new_resume)
-            db.commit()
-            db.refresh(new_resume)
-            parsed_result["resume_id"] = new_resume.id
-        except Exception as e:
+            if current_user_id:
+                user_res = db.query(ResumeModel).filter(ResumeModel.user_id == current_user_id).first()
+                skills_json = json.dumps(parsed_result.get("skills", []))
+                breakdown_json = json.dumps(parsed_result.get("section_breakdown", {}))
+
+                if user_res:
+                    user_res.candidate_name = parsed_result.get("candidate_name")
+                    user_res.email = parsed_result.get("email")
+                    user_res.phone = parsed_result.get("phone")
+                    user_res.skills = skills_json
+                    user_res.predicted_category = parsed_result.get("predicted_category")
+                    user_res.ats_score = parsed_result.get("ats_score", 0.0)
+                    user_res.section_breakdown = breakdown_json
+                    user_res.raw_text_snippet = parsed_result.get("raw_text_snippet")
+                else:
+                    new_res = ResumeModel(
+                        user_id=current_user_id,
+                        candidate_name=parsed_result.get("candidate_name"),
+                        email=parsed_result.get("email"),
+                        phone=parsed_result.get("phone"),
+                        skills=skills_json,
+                        predicted_category=parsed_result.get("predicted_category"),
+                        ats_score=parsed_result.get("ats_score", 0.0),
+                        section_breakdown=breakdown_json,
+                        raw_text_snippet=parsed_result.get("raw_text_snippet")
+                    )
+                    db.add(new_res)
+                db.commit()
+        except Exception as db_err:
             db.rollback()
-            print(f"Error saving resume DB: {e}")
+            print(f"Error persisting resume to DB: {db_err}")
         finally:
             db.close()
 
         return jsonify({
-            "message": f"Resume analyzed using {parsed_result.get('engine_used', 'NLP Engine')}.",
+            "message": f"Resume parsed successfully using {parsed_result.get('engine_used', 'Local Engine')}.",
             "data": parsed_result
         }), 200
 
-    except Exception as err:
-        print(f"Unhandled error in /parse: {err}")
-        return jsonify({
-            "error": f"An error occurred while parsing the resume: {str(err)}"
-        }), 500
-
-@resume_bp.route("/history", methods=["GET"])
-def get_resume_history():
-    db = SessionLocal()
-    try:
-        current_user_id = get_authorized_user_id(db, request)
-        resumes = db.query(ResumeModel).filter(ResumeModel.user_id == current_user_id).order_by(ResumeModel.created_at.desc()).all()
-        history = []
-        for r in resumes:
-            history.append({
-                "id": r.id,
-                "filename": r.filename,
-                "candidate_name": r.candidate_name,
-                "category": r.category,
-                "ats_score": r.ats_score,
-                "created_at": r.created_at.strftime("%Y-%m-%d %H:%M")
-            })
-        return jsonify({"history": history}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        db.close()
+        print(f"Error parsing resume: {e}")
+        return jsonify({"error": f"Failed to parse resume file: {str(e)}"}), 500

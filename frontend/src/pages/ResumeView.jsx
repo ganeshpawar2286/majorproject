@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, FileText, CheckCircle2, AlertTriangle, Cpu, Tag, ArrowRight, Sparkles, Key, TrendingUp, CheckSquare, Layers, FileQuestion } from 'lucide-react';
 
-export default function ResumeView({ onResumeParsed, setParsedData }) {
-  const [activeResult, setActiveResult] = useState(null);
+export default function ResumeView({ onResumeParsed, setParsedData, parsedData }) {
+  const [activeResult, setActiveResult] = useState(parsedData || null);
   const [file, setFile] = useState(null);
   const [rawText, setRawText] = useState('');
   const [activeTab, setActiveTab] = useState('upload'); // 'upload' | 'text'
@@ -10,6 +10,13 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Sync activeResult when parsedData prop updates
+  useEffect(() => {
+    if (parsedData) {
+      setActiveResult(parsedData);
+    }
+  }, [parsedData]);
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -91,7 +98,7 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
               <span className="badge badge-indigo">Module 1</span>
-              <span className="badge badge-emerald">Multi-Engine Resume Parser</span>
+              <span className="badge badge-emerald">High-Precision ATS Resume Parser</span>
             </div>
             <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>Resume Analysis & ATS Scoring</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', marginTop: '4px' }}>
@@ -123,58 +130,6 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
             {activeTab === 'upload' ? 'Upload Resume File' : 'Paste Resume Content'}
           </h3>
 
-          {/* Engine Selector */}
-          <div style={{ marginBottom: '20px', background: 'rgba(15, 23, 42, 0.5)', padding: '16px', borderRadius: '10px', border: '1px solid var(--border-glass)' }}>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>
-              PARSER ENGINE SELECTION:
-            </label>
-            <select
-              value={selectedEngine}
-              onChange={(e) => setSelectedEngine(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                background: 'rgba(15, 23, 42, 0.8)',
-                border: '1px solid var(--border-glow)',
-                borderRadius: '8px',
-                color: '#fff',
-                outline: 'none',
-                fontWeight: 600
-              }}
-            >
-              <option value="local">⚡ Local High-Precision Engine (Free, Quantifiable Scoring)</option>
-              <option value="affinda">⭐ Affinda Resume Parser API</option>
-              <option value="rchilli">🌶️ RChilli Resume Parser API</option>
-              <option value="textkernel">🏢 Textkernel Tx Platform API</option>
-            </select>
-
-            {selectedEngine !== 'local' && (
-              <div style={{ marginTop: '12px' }}>
-                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
-                  {selectedEngine.toUpperCase()} API KEY (OPTIONAL - FALLS BACK TO LOCAL ENGINE IF OMITTED):
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Key size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-dim)' }} />
-                  <input
-                    type="password"
-                    placeholder={`Enter your ${selectedEngine} API key...`}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px 8px 32px',
-                      background: 'rgba(15, 23, 42, 0.6)',
-                      border: '1px solid var(--border-glass)',
-                      borderRadius: '6px',
-                      color: '#fff',
-                      fontSize: '0.82rem',
-                      outline: 'none'
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
 
           {error && (
             <div style={{
@@ -202,7 +157,7 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
             }}>
               <Upload size={40} color="var(--primary-light)" style={{ marginBottom: '12px' }} />
               <h4 style={{ color: '#fff', fontSize: '1rem', marginBottom: '6px' }}>
-                {file ? file.name : 'Drag & Drop or Click to Select File'}
+                {file ? file.name : (activeResult ? `Currently Active: ${activeResult.filename || 'Uploaded Resume'}` : 'Drag & Drop or Click to Select File')}
               </h4>
               <p style={{ color: 'var(--text-dim)', fontSize: '0.82rem' }}>
                 Supports PDF, DOCX, or DOC format (Max 10MB)
@@ -215,7 +170,7 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
                 id="resume-file-input"
               />
               <label htmlFor="resume-file-input" className="btn-secondary" style={{ marginTop: '16px', display: 'inline-flex' }}>
-                Browse Files
+                {file ? 'Change Selected File' : 'Browse Files'}
               </label>
             </div>
           ) : (
@@ -248,7 +203,7 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
               <>Analyzing Resume with {selectedEngine.toUpperCase()}...</>
             ) : (
               <>
-                <Sparkles size={18} /> Analyze Resume & Calculate ATS Score
+                <Sparkles size={18} /> {activeResult ? 'Re-Analyze / Update Resume' : 'Analyze Resume & Calculate ATS Score'}
               </>
             )}
           </button>
@@ -256,7 +211,7 @@ export default function ResumeView({ onResumeParsed, setParsedData }) {
 
         {/* Results Analysis Panel */}
         {activeResult ? (
-          /* ATS Score Overview Card - SHOWN STRICTLY AFTER FILE UPLOAD */
+          /* ATS Score Overview Card - PERSISTED ACROSS TABS */
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="glass-card" style={{ padding: '24px', background: 'linear-gradient(135deg, rgba(18, 26, 43, 0.9) 0%, rgba(30, 41, 59, 0.9) 100%)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>

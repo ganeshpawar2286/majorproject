@@ -6,9 +6,28 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JOBS_CSV_PATH = os.path.join(BASE_DIR, "archive (2)", "jobs_dataset.csv")
-RESUME_CSV_PATH = os.path.join(BASE_DIR, "archive (3)", "Resume", "Resume.csv")
+# Resolve Project Root and Dataset Paths with robust fallbacks
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def _find_dataset(candidate_paths):
+    for rel_path in candidate_paths:
+        candidate = os.path.normpath(os.path.join(PROJECT_ROOT, *rel_path.split("/")))
+        if os.path.exists(candidate):
+            return candidate
+    return ""
+
+JOBS_CSV_PATH = _find_dataset([
+    "data/jobs/jobs_dataset.csv",
+    "data/jobs_dataset.csv",
+    "archive (2)/jobs_dataset.csv"
+])
+
+RESUME_CSV_PATH = _find_dataset([
+    "data/resumes/Resume.csv",
+    "data/Resume.csv",
+    "archive (3)/Resume/Resume.csv",
+    "archive (2)/Resume/Resume.csv"
+])
 
 class DatasetLoader:
     _instance = None

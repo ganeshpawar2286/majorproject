@@ -1,6 +1,5 @@
-import secrets
-import random
 import json
+import secrets
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -8,57 +7,60 @@ from backend.database import SessionLocal, User, UserProfile, ResumeModel
 
 auth_bp = Blueprint("auth", __name__)
 
+def generate_token(user_id):
+    return f"pw_session_{user_id}_{secrets.token_hex(16)}"
+
+@auth_bp.route("/register", methods=["POST"])
 @auth_bp.route("/signup", methods=["POST"])
-def signup():
+def register():
     data = request.get_json() or {}
     username = data.get("username", "").strip()
     email = data.get("email", "").strip().lower()
+    if not email and "@" in username:
+        email = username
+    if not username:
+        username = email.split("@")[0] if "@" in email else email
+
     password = data.get("password", "").strip()
 
     if not username or not email or not password:
-        return jsonify({"error": "Username, email, and password are required."}), 400
+        return jsonify({"error": "All fields (username, email, password) are required."}), 400
+
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters long."}), 400
 
     db = SessionLocal()
     try:
-        # Enforce strictly 1 account per email ID & username
-        existing_user = db.query(User).filter(
-            (User.username == username) | (User.email == email)
-        ).first()
-        
+        existing_user = db.query(User).filter((User.username == username) | (User.email == email)).first()
         if existing_user:
-            if existing_user.email.lower() == email:
-                return jsonify({"error": "An account with this email address already exists. Only 1 account per email ID is allowed."}), 409
-            return jsonify({"error": "Username already taken. Please choose another username."}), 409
+            return jsonify({"error": "Username or email is already registered. Please sign in."}), 400
 
-        hashed_pw = generate_password_hash(password)
-        new_user = User(
+        user = User(
             username=username,
             email=email,
-            password_hash=hashed_pw
+            password_hash=generate_password_hash(password)
         )
-        db.add(new_user)
+        db.add(user)
         db.commit()
-        db.refresh(new_user)
+        db.refresh(user)
 
-        # Initialize User Profile for new account
-        new_profile = UserProfile(
-            user_id=new_user.id,
-            full_name=username.title(),
-            headline=f"Job Candidate & Professional",
-            target_role="Software Engineer",
-            industry_category="INFORMATION-TECHNOLOGY",
-            bio="Welcome to my PrepWise AI candidate profile.",
-            skills_json="[]"
-        )
-        db.add(new_profile)
+        # Initialize profile
+        profile = UserProfile(user_id=user.id, full_name=username.title())
+        db.add(profile)
+        db.commit()
+
+        # Issue single session token
+        token = generate_token(user.id)
+        user.active_token = token
         db.commit()
 
         return jsonify({
-            "message": "Account created successfully! Please sign in.",
+            "message": "Account registered successfully!",
+            "token": token,
             "user": {
-                "id": new_user.id,
-                "username": new_user.username,
-                "email": new_user.email
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
             }
         }), 201
     except Exception as e:
@@ -70,40 +72,29 @@ def signup():
 @auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.get_json() or {}
-    username_or_email = data.get("username", "").strip().lower()
+    email_or_user = (data.get("email") or data.get("username") or "").strip().lower()
     password = data.get("password", "").strip()
 
-    if not username_or_email or not password:
+    if not email_or_user or not password:
         return jsonify({"error": "Email/Username and password are required."}), 400
 
     db = SessionLocal()
     try:
         user = db.query(User).filter(
-            (User.username == username_or_email) | (User.email == username_or_email)
+            (User.email == email_or_user) | (User.username == email_or_user)
         ).first()
 
         if not user or not check_password_hash(user.password_hash, password):
-            return jsonify({"error": "Invalid email address/username or password."}), 401
+            return jsonify({"error": "Invalid email/username or password."}), 401
 
-        # Enforce Single Active Session per Mail ID
-        new_token = f"pw_session_{user.id}_{secrets.token_hex(16)}"
-        user.active_token = new_token
-        user.last_login_at = datetime.utcnow()
-
-        # Ensure profile exists for account
-        if not user.profile:
-            user.profile = UserProfile(
-                user_id=user.id,
-                full_name=user.username.title(),
-                target_role="Software Engineer",
-                industry_category="INFORMATION-TECHNOLOGY"
-            )
-
+        # Enforce single session policy
+        token = generate_token(user.id)
+        user.active_token = token
         db.commit()
 
         return jsonify({
             "message": "Login successful!",
-            "token": new_token,
+            "token": token,
             "user": {
                 "id": user.id,
                 "username": user.username,
@@ -122,15 +113,16 @@ def forgot_password():
     email = data.get("email", "").strip().lower()
 
     if not email:
-        return jsonify({"error": "Please enter your registered email address."}), 400
+        return jsonify({"error": "Registered email is required."}), 400
 
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == email).first()
         if not user:
-            return jsonify({"error": "No account found with this email address. Please check your spelling or sign up."}), 444
+            return jsonify({"error": "No user account registered with that email."}), 404
 
-        reset_code = f"{random.randint(100000, 999999)}"
+        import random
+        reset_code = str(random.randint(100000, 999999))
         user.reset_token = reset_code
         user.reset_token_expiry = datetime.utcnow() + timedelta(minutes=15)
         db.commit()
@@ -217,7 +209,7 @@ def verify_session():
 @auth_bp.route("/profile", methods=["GET"])
 def get_profile():
     """
-    Returns isolated user profile details for current logged-in account.
+    Returns isolated user profile details strictly for current logged-in account.
     """
     token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
     db = SessionLocal()
@@ -225,11 +217,9 @@ def get_profile():
         user = None
         if token:
             user = db.query(User).filter(User.active_token == token).first()
+        
         if not user:
-            user = db.query(User).first()
-
-        if not user:
-            return jsonify({"error": "No user account found."}), 404
+            return jsonify({"error": "Unauthorized session token."}), 401
 
         if not user.profile:
             user.profile = UserProfile(user_id=user.id, full_name=user.username.title())
@@ -241,7 +231,7 @@ def get_profile():
         except Exception:
             skills = []
 
-        # Get latest parsed resume for account
+        # Get latest parsed resume STRICTLY for THIS authenticated user
         latest_resume = db.query(ResumeModel).filter(ResumeModel.user_id == user.id).order_by(ResumeModel.id.desc()).first()
         resume_data = json.loads(latest_resume.parsed_json) if (latest_resume and latest_resume.parsed_json) else None
 
@@ -258,71 +248,9 @@ def get_profile():
                 "skills": skills,
                 "phone": user.profile.phone or "",
                 "linkedin_url": user.profile.linkedin_url or "",
-                "github_url": user.profile.github_url or "",
-                "portfolio_url": user.profile.portfolio_url or "",
-                "created_at": user.created_at.strftime("%Y-%m-%d") if user.created_at else "2026-01-01"
+                "github_url": user.profile.github_url or ""
             },
             "latest_resume": resume_data
         }), 200
-    finally:
-        db.close()
-
-@auth_bp.route("/profile", methods=["PUT"])
-def update_profile():
-    """
-    Updates user profile details for current logged-in account.
-    """
-    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    data = request.get_json() or {}
-
-    db = SessionLocal()
-    try:
-        user = None
-        if token:
-            user = db.query(User).filter(User.active_token == token).first()
-        if not user:
-            user = db.query(User).first()
-
-        if not user:
-            return jsonify({"error": "No user account found."}), 404
-
-        if not user.profile:
-            user.profile = UserProfile(user_id=user.id, full_name=user.username.title())
-            db.add(user.profile)
-
-        if "full_name" in data: user.profile.full_name = data["full_name"].strip()
-        if "headline" in data: user.profile.headline = data["headline"].strip()
-        if "target_role" in data: user.profile.target_role = data["target_role"].strip()
-        if "industry_category" in data: user.profile.industry_category = data["industry_category"].strip()
-        if "bio" in data: user.profile.bio = data["bio"].strip()
-        if "skills" in data: user.profile.skills_json = json.dumps(data["skills"])
-        if "phone" in data: user.profile.phone = data["phone"].strip()
-        if "linkedin_url" in data: user.profile.linkedin_url = data["linkedin_url"].strip()
-        if "github_url" in data: user.profile.github_url = data["github_url"].strip()
-        if "portfolio_url" in data: user.profile.portfolio_url = data["portfolio_url"].strip()
-
-        db.commit()
-
-        return jsonify({
-            "message": "User profile updated successfully!",
-            "profile": {
-                "user_id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.profile.full_name,
-                "headline": user.profile.headline,
-                "target_role": user.profile.target_role,
-                "industry_category": user.profile.industry_category,
-                "bio": user.profile.bio,
-                "skills": json.loads(user.profile.skills_json) if user.profile.skills_json else [],
-                "phone": user.profile.phone,
-                "linkedin_url": user.profile.linkedin_url,
-                "github_url": user.profile.github_url,
-                "portfolio_url": user.profile.portfolio_url
-            }
-        }), 200
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
     finally:
         db.close()

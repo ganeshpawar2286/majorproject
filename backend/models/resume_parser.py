@@ -6,8 +6,8 @@ import docx
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from models.dataset_loader import dataset_loader
-from models.external_parsers import external_parsers
+from backend.models.dataset_loader import dataset_loader
+from backend.models.external_parsers import external_parsers
 
 # Comprehensive 200+ Skill Taxonomy across Technical & Non-Technical domains
 SKILL_TAXONOMY = {
@@ -75,10 +75,86 @@ NON_NAME_KEYWORDS = {
     "specialist", "contact", "email", "phone", "address", "details", "personal", "work", "history"
 }
 
+NON_RESUME_BLACKLIST_KEYWORDS = {
+    # Commercial & Financial Receipts/Bills
+    "gstin", "tax invoice", "invoice no", "invoice date", "hsn/sac", "cgst", "sgst", "igst",
+    "subtotal", "grand total", "total amount", "tax amount", "payment receipt", "fee receipt",
+    "college fee", "marksheet", "hall ticket", "admit card", "electricity bill", "water bill",
+    "bank statement", "ifsc code", "account number", "ship to", "bill to", "vendor name",
+    
+    # Class Notes, Study Modules & Academic Question Answers
+    "class notes", "study material", "lecture notes", "module 1", "module 2", "module 3", "module 4", "module 5",
+    "10 mark answers", "10 marks", "5 mark", "question bank", "assignment", "homework", "syllabus",
+    "question paper", "midterm", "endterm", "lab manual", "experiment no", "solution manual", "chapter 1",
+    "chapter 2", "unit 1", "unit 2", "unit 3", "unit 4", "unit 5", "ans:", "answer:", "q.1", "q.2", "q.3"
+}
+
+RESUME_SECTION_MARKERS = {
+    "experience", "education", "skills", "projects", "profile", "summary", "work history",
+    "employment", "qualifications", "certifications", "technical skills", "curriculum vitae",
+    "resume", "career objective", "personal details", "internships", "achievements", "languages"
+}
+
 class ResumeParser:
     def __init__(self):
         self.loader = dataset_loader
         self._init_category_classifier()
+
+    def validate_is_resume(self, text, filename="resume.pdf"):
+        """
+        Validates whether the extracted document is a genuine Candidate Resume or a Non-Resume file
+        (such as Class Notes, Study Modules, Question Answer sheets, GST Invoices, Fee Receipts, etc.).
+        Returns tuple: (is_valid: bool, reason_message: str)
+        """
+        if not text or len(text.strip()) < 15:
+            return False, "Uploaded file appears empty or unreadable. Please upload a valid text-based PDF or DOCX candidate resume."
+
+        text_lower = text.lower()
+        fn_lower = filename.lower()
+
+        # 1. IEEE RESEARCH PAPER & ACADEMIC JOURNAL ARTICLE DETECTION
+        ieee_markers = ["abstract—", "abstract -", "keywords—", "literature review", "research gaps", "open challenges", "proposed methodology", "experimental results", "ieee", "proceedings of", "dept. of", "department of"]
+        found_ieee = [m for m in ieee_markers if m in text_lower]
+        has_paper_citations = bool(re.search(r'\[1\]|\[2\]|\[3\]|et al\.', text_lower))
+        has_paper_fn = any(kw in fn_lower for kw in ["paper", "manuscript", "journal", "ieee", "publication", "conference"])
+        has_resume_fn = any(kw in fn_lower for kw in ["resume", "cv", "curriculum", "biodata"])
+
+        if (len(found_ieee) >= 2 and has_paper_citations) or ("abstract" in text_lower and ("literature review" in text_lower or "keywords" in text_lower or "research gaps" in text_lower or "et al." in text_lower or "dept. of" in text_lower)) or (has_paper_fn and not has_resume_fn):
+            return False, f"Invalid Document Uploaded: The file '{filename}' appears to be an IEEE Research Paper / Academic Publication ('Abstract', 'Literature Review', 'Citations'). PrepWise AI strictly accepts Candidate Resumes (PDF/DOCX) only. Please upload your candidate resume."
+
+        # 2. FILENAME PATTERN INSPECTION (Class Notes / Study Material / Receipts)
+        academic_fn_keywords = ["module", "mark_answers", "notes", "assignment", "question", "chapter", "lecture", "unit_", "exam_", "syllabus", "invoice", "receipt", "bill", "marksheet"]
+        has_academic_fn = any(kw in fn_lower for kw in academic_fn_keywords)
+
+        if has_academic_fn and not has_resume_fn:
+            return False, f"Invalid File Uploaded: The file '{filename}' appears to be Class Notes / Study Material / Question Answers. Please upload a valid Candidate Resume (PDF or DOCX)."
+
+        # 3. CLASS NOTES / STUDY MATERIAL / QUESTION ANSWER CONTENT SCAN
+        academic_phrases = ["10 mark", "5 mark", "mark answers", "question bank", "module 1", "module 2", "module 3", "module 4", "chapter 1", "chapter 2", "unit 1", "unit 2", "lecture notes", "study material", "class notes"]
+        found_academic = [p for p in academic_phrases if p in text_lower]
+        if found_academic:
+            matched_str = ", ".join([a.upper() for a in found_academic[:2]])
+            return False, f"Invalid Document: Uploaded file detected as Class Notes / Academic Study Document ({matched_str}). PrepWise AI strictly accepts Candidate Resumes only. Please upload your candidate resume."
+
+        # 4. COMMERCIAL / TAX / RECEIPT BLACKLIST SCAN
+        blacklist_matches = [kw for kw in NON_RESUME_BLACKLIST_KEYWORDS if kw in text_lower]
+        if len(blacklist_matches) >= 2 or ("tax invoice" in text_lower or "gstin" in text_lower or "fee receipt" in text_lower or "invoice no" in text_lower or "subtotal" in text_lower):
+            found_str = ", ".join([m.upper() for m in blacklist_matches[:3]])
+            return False, f"Invalid Document: Uploaded file detected as a Commercial / Tax / Receipt Document ({found_str or 'TAX INVOICE'}). PrepWise AI strictly accepts Candidate Resumes only."
+
+
+        # 4. MANDATORY RESUME STRUCTURAL SECTION VERIFICATION
+        resume_markers = [marker for marker in RESUME_SECTION_MARKERS if marker in text_lower]
+        
+        has_email = bool(re.search(r'[a-zA-Z0-9%._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text_lower))
+        has_phone = bool(re.search(r'[\+\(]?[0-9]{1,4}[\)]?[-\s\./0-9]{7,15}', text_lower))
+        has_skills = any(re.search(r'\b' + re.escape(s) + r'\b', text_lower) for s in list(SKILL_TAXONOMY)[:40])
+
+        if len(resume_markers) == 0 and not (has_email and (has_phone or has_skills)):
+            return False, "Invalid Document Type: Uploaded file does not contain standard resume sections (e.g. Experience, Education, Skills, Profile). Please upload a valid candidate resume."
+
+        return True, "Valid Candidate Resume Document"
+
 
     def _init_category_classifier(self):
         """Initializes high-precision TF-IDF category predictor (unigrams + bigrams)"""

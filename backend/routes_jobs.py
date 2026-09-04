@@ -1,18 +1,18 @@
 from flask import Blueprint, request, jsonify
-from models.job_matcher import job_matcher
-from models.dataset_loader import dataset_loader
+from backend.models.job_matcher import job_matcher
+from backend.models.dataset_loader import dataset_loader
 
 jobs_bp = Blueprint("jobs", __name__)
 
 @jobs_bp.route("/recommendations", methods=["POST"])
 def get_job_recommendations():
     """
-    Takes parsed resume data (skills, category, snippet) and matches against jobs dataset.
-    Returns top_n (default 50) company recommendations with acceptance probabilities and skill gaps.
+    Takes parsed resume data (skills, category, snippet) and matches against all 760 jobs in dataset.
+    Returns up to top_n (default 1000) job recommendations with acceptance probabilities and skill gaps.
     """
     data = request.get_json() or {}
     resume_data = data.get("resume_data", {})
-    top_n = data.get("top_n", 50)
+    top_n = data.get("top_n", 1000)
 
     if not resume_data:
         # Fallback default resume features
@@ -25,7 +25,7 @@ def get_job_recommendations():
     recommendations = job_matcher.predict_company_acceptance(resume_data, top_n=top_n)
 
     return jsonify({
-        "message": f"Found top {len(recommendations)} company job matches.",
+        "message": f"Found top {len(recommendations)} company job matches out of all 760 jobs in dataset.",
         "recommendations": recommendations,
         "categories": dataset_loader.get_categories()
     }), 200

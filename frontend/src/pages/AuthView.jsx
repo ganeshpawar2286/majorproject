@@ -32,8 +32,12 @@ export default function AuthView({ onLoginSuccess }) {
     setLoading(true);
 
     const isSignup = mode === 'signup';
-    const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
-    const payload = isSignup ? { username, email, password } : { username: email || username, password };
+    const endpoint = isSignup ? '/api/auth/register' : '/api/auth/login';
+    const inputVal = (email || username).trim();
+
+    const payload = isSignup 
+      ? { username: username || inputVal, email: inputVal, password } 
+      : { email: inputVal, username: inputVal, password };
 
     try {
       const res = await fetch(endpoint, {
@@ -51,7 +55,7 @@ export default function AuthView({ onLoginSuccess }) {
         setSuccessMsg(data.message || 'Account created! Please sign in with your new account.');
         switchMode('signin');
       } else {
-        const loggedInUser = data.user || { username: username || 'User', email };
+        const loggedInUser = data.user || { username: inputVal || 'User', email: inputVal };
         if (data.token) {
           localStorage.setItem('prepwise_session_token', data.token);
           localStorage.setItem('prepwise_user_account', JSON.stringify(loggedInUser));
@@ -71,7 +75,8 @@ export default function AuthView({ onLoginSuccess }) {
     setError('');
     setSuccessMsg('');
 
-    if (!email.trim()) {
+    const targetEmail = (email || username).trim();
+    if (!targetEmail) {
       setError('Please enter your registered email address.');
       return;
     }
@@ -81,7 +86,7 @@ export default function AuthView({ onLoginSuccess }) {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email: targetEmail })
       });
       const data = await res.json();
 
@@ -90,7 +95,7 @@ export default function AuthView({ onLoginSuccess }) {
       }
 
       setResetCode(data.reset_code || '');
-      setSuccessMsg(`Verification code generated for ${email}! Please enter code and new password.`);
+      setSuccessMsg(`Verification code generated for ${targetEmail}! Please enter code and new password.`);
       setMode('reset');
     } catch (err) {
       setError(err.message);
@@ -120,10 +125,15 @@ export default function AuthView({ onLoginSuccess }) {
 
     setLoading(true);
     try {
+      const targetEmail = (email || username).trim();
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, reset_code: resetCode, new_password: newPassword })
+        body: JSON.stringify({
+          email: targetEmail,
+          reset_code: resetCode,
+          new_password: newPassword
+        })
       });
       const data = await res.json();
 
@@ -131,12 +141,8 @@ export default function AuthView({ onLoginSuccess }) {
         throw new Error(data.error || 'Failed to reset password.');
       }
 
-      setSuccessMsg('Password updated successfully! Please sign in with your new password.');
-      setPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setResetCode('');
-      setMode('signin');
+      setSuccessMsg(data.message || 'Password reset successful! Please sign in.');
+      switchMode('signin');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -144,9 +150,10 @@ export default function AuthView({ onLoginSuccess }) {
     }
   };
 
+  // Guest Demo User Bypass
   const handleGuestLogin = () => {
-    const guestUser = { username: 'Demo Professional', email: 'guest@prepwise.ai' };
-    localStorage.setItem('prepwise_session_token', 'guest_token_' + Date.now());
+    const guestUser = { id: 1, username: 'Guest Candidate', email: 'guest@prepwise.ai' };
+    localStorage.setItem('prepwise_session_token', 'guest_demo_token_123');
     localStorage.setItem('prepwise_user_account', JSON.stringify(guestUser));
     onLoginSuccess(guestUser);
   };
@@ -315,13 +322,54 @@ export default function AuthView({ onLoginSuccess }) {
 
             <button
               type="submit"
-              className="btn-primary"
               disabled={loading}
-              style={{ width: '100%', justifyContent: 'center', marginTop: '8px', padding: '12px' }}
+              className="btn-primary"
+              style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '0.98rem', marginTop: '6px' }}
             >
-              {loading ? 'Processing...' : mode === 'signup' ? 'Create Account & Profile' : 'Sign In'}
-              <ArrowRight size={18} />
+              {loading ? (
+                'Processing...'
+              ) : (
+                <>
+                  {mode === 'signup' ? 'Create Account' : 'Sign In'} <ArrowRight size={18} />
+                </>
+              )}
             </button>
+
+            <div style={{ textAlign: 'center', margin: '8px 0 0 0', position: 'relative' }}>
+              <div style={{ borderBottom: '1px solid var(--border-glass)', margin: '14px 0' }} />
+              <button
+                type="button"
+                onClick={handleGuestLogin}
+                className="btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', fontSize: '0.88rem' }}
+              >
+                <ShieldCheck size={16} color="#10b981" /> Continue as Guest Demo User
+              </button>
+            </div>
+
+            <div style={{ textAlign: 'center', fontSize: '0.86rem', color: 'var(--text-muted)', marginTop: '12px' }}>
+              {mode === 'signin' ? (
+                <>
+                  Don't have an account yet?{' '}
+                  <span
+                    onClick={() => switchMode('signup')}
+                    style={{ color: 'var(--primary-light)', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Sign Up
+                  </span>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <span
+                    onClick={() => switchMode('signin')}
+                    style={{ color: 'var(--primary-light)', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    Sign In
+                  </span>
+                </>
+              )}
+            </div>
           </form>
         )}
 
@@ -330,7 +378,7 @@ export default function AuthView({ onLoginSuccess }) {
           <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                ENTER YOUR REGISTERED EMAIL
+                REGISTERED EMAIL ADDRESS
               </label>
               <div style={{ position: 'relative' }}>
                 <Mail size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-dim)' }} />
@@ -355,18 +403,18 @@ export default function AuthView({ onLoginSuccess }) {
 
             <button
               type="submit"
-              className="btn-primary"
               disabled={loading}
-              style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+              className="btn-primary"
+              style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '0.98rem' }}
             >
-              {loading ? 'Verifying Email...' : 'Send Reset Code'}
+              {loading ? 'Sending Code...' : 'Get Verification Code'}
             </button>
 
             <button
               type="button"
               onClick={() => switchMode('signin')}
               className="btn-secondary"
-              style={{ width: '100%', justifyContent: 'center' }}
+              style={{ width: '100%', justifyContent: 'center', fontSize: '0.86rem' }}
             >
               <ArrowLeft size={16} /> Back to Sign In
             </button>
@@ -383,20 +431,20 @@ export default function AuthView({ onLoginSuccess }) {
               <input
                 type="text"
                 required
-                maxLength={6}
-                placeholder="e.g. 849201"
+                placeholder="Enter 6-digit code..."
                 value={resetCode}
                 onChange={(e) => setResetCode(e.target.value)}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
                   background: 'rgba(15, 23, 42, 0.6)',
-                  border: '1px solid var(--border-glass)',
+                  border: '1px solid var(--border-glow)',
                   borderRadius: '8px',
                   color: '#fff',
                   outline: 'none',
                   letterSpacing: '2px',
-                  fontWeight: 700
+                  fontWeight: 700,
+                  fontSize: '1rem'
                 }}
               />
             </div>
@@ -405,87 +453,64 @@ export default function AuthView({ onLoginSuccess }) {
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
                 NEW PASSWORD
               </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-dim)' }} />
-                <input
-                  type="password"
-                  required
-                  placeholder="Enter new password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px 10px 40px',
-                    background: 'rgba(15, 23, 42, 0.6)',
-                    border: '1px solid var(--border-glass)',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    outline: 'none'
-                  }}
-                />
-              </div>
+              <input
+                type="password"
+                required
+                placeholder="Minimum 6 characters"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  border: '1px solid var(--border-glass)',
+                  borderRadius: '8px',
+                  color: '#fff',
+                  outline: 'none'
+                }}
+              />
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
                 CONFIRM NEW PASSWORD
               </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-dim)' }} />
-                <input
-                  type="password"
-                  required
-                  placeholder="Re-enter new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px 10px 40px',
-                    background: 'rgba(15, 23, 42, 0.6)',
-                    border: '1px solid var(--border-glass)',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    outline: 'none'
-                  }}
-                />
-              </div>
+              <input
+                type="password"
+                required
+                placeholder="Re-enter new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  border: '1px solid var(--border-glass)',
+                  borderRadius: '8px',
+                  color: '#fff',
+                  outline: 'none'
+                }}
+              />
             </div>
 
             <button
               type="submit"
-              className="btn-primary"
               disabled={loading}
-              style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+              className="btn-primary"
+              style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '0.98rem' }}
             >
-              {loading ? 'Updating Password...' : 'Set New Password & Sign In'}
+              {loading ? 'Updating Password...' : 'Update Password & Sign In'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => switchMode('signin')}
+              className="btn-secondary"
+              style={{ width: '100%', justifyContent: 'center', fontSize: '0.86rem' }}
+            >
+              <ArrowLeft size={16} /> Back to Sign In
             </button>
           </form>
-        )}
-
-        {/* GUEST LOGIN BUTTON */}
-        {(mode === 'signin' || mode === 'signup') && (
-          <>
-            <div style={{ margin: '20px 0', textAlign: 'center', borderTop: '1px solid var(--border-glass)', paddingTop: '16px' }}>
-              <button
-                onClick={handleGuestLogin}
-                className="btn-secondary"
-                style={{ width: '100%', justifyContent: 'center', fontSize: '0.88rem' }}
-              >
-                <ShieldCheck size={16} color="#10b981" />
-                Continue as Guest Demo User
-              </button>
-            </div>
-
-            <p style={{ textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              {mode === 'signup' ? 'Already have an account?' : "Don't have an account yet?"}{' '}
-              <span
-                onClick={() => switchMode(mode === 'signup' ? 'signin' : 'signup')}
-                style={{ color: 'var(--primary-light)', cursor: 'pointer', fontWeight: 600 }}
-              >
-                {mode === 'signup' ? 'Sign In' : 'Sign Up'}
-              </span>
-            </p>
-          </>
         )}
       </div>
     </div>

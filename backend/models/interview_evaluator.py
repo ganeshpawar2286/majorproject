@@ -1,7 +1,7 @@
 import re
 import random
-from models.dataset_loader import dataset_loader
-from models.deep_answer_evaluator import deep_answer_evaluator
+from backend.models.dataset_loader import dataset_loader
+from backend.models.deep_answer_evaluator import deep_answer_evaluator
 
 # Category-specific & Role-based Interview Question Banks
 QUESTION_BANK = {

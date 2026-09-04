@@ -1,6 +1,6 @@
 import json
 from flask import Blueprint, request, jsonify
-from models.interview_evaluator import interview_evaluator
+from backend.models.interview_evaluator import interview_evaluator
 from backend.database import SessionLocal, User, InterviewSessionModel, InterviewResponseModel
 
 interview_bp = Blueprint("interview", __name__)

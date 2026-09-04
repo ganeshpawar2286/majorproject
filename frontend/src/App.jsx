@@ -17,13 +17,36 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState('resume'); // 'resume' | 'jobs' | 'interview' | 'dashboard' | 'profile'
-  const [parsedData, setParsedData] = useState(null);
+  const [activeTab, setActiveTabState] = useState(() => {
+    try {
+      const savedTab = localStorage.getItem('prepwise_active_tab');
+      return savedTab || 'resume';
+    } catch (e) {
+      return 'resume';
+    }
+  });
+
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('prepwise_active_tab', tab);
+    } catch (e) {
+      console.warn("Could not save activeTab to localStorage:", e);
+    }
+  };
+  
+  // Parsed resume data state - ALWAYS STARTS NULL FOR EVERY LOGIN SESSION
+  const [parsedData, setParsedDataState] = useState(null);
+
+  const setParsedData = (data) => {
+    // Keep parsed resume strictly in component memory for active session only
+    setParsedDataState(data);
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('prepwise_session_token');
     if (token) {
-      // Verify session token on refresh
+      // Verify session token on page load/refresh
       fetch('/api/auth/verify-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -34,6 +57,7 @@ export default function App() {
         if (data.valid && data.user) {
           setUser(data.user);
           localStorage.setItem('prepwise_user_account', JSON.stringify(data.user));
+          // Always keep parsedData null on initial login/load so application stays clear
         } else {
           handleLogout();
         }
@@ -43,14 +67,17 @@ export default function App() {
       });
     } else {
       setUser(null);
-      setParsedData(null);
+      setParsedDataState(null);
     }
   }, []);
 
   const handleLogout = () => {
+    // Wipes all transient state so every login session starts 100% fresh and blank!
     localStorage.removeItem('prepwise_session_token');
     localStorage.removeItem('prepwise_user_account');
-    setParsedData(null);
+    localStorage.removeItem('prepwise_active_tab');
+    localStorage.removeItem('prepwise_current_parsed_resume');
+    setParsedDataState(null);
     setUser(null);
   };
 
@@ -58,6 +85,10 @@ export default function App() {
     return <AuthView onLoginSuccess={(u) => {
       setUser(u);
       localStorage.setItem('prepwise_user_account', JSON.stringify(u));
+      
+      // CLEAR RESUME STATE ON EVERY NEW LOGIN SO APPLICATION STARTS 100% FRESH & BLANK!
+      setParsedDataState(null);
+      setActiveTabState('resume');
     }} />;
   }
 

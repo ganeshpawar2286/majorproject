@@ -1,6 +1,6 @@
 import re
-from models.vocal_analyzer import vocal_analyzer
-from models.sentence_bert_ats import sentence_bert_ats
+from backend.models.vocal_analyzer import vocal_analyzer
+from backend.models.sentence_bert_ats import sentence_bert_ats
 
 class DeepAnswerEvaluator:
     """
