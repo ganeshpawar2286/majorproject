@@ -1,8 +1,18 @@
 import re
 import os
 import io
-import PyPDF2
-import docx
+try:
+    import PyPDF2
+except ImportError:
+    try:
+        import pypdf as PyPDF2  # type: ignore
+    except ImportError:
+        PyPDF2 = None  # type: ignore
+
+try:
+    import docx
+except ImportError:
+    docx = None  # type: ignore
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity

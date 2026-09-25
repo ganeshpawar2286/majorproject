@@ -96,14 +96,14 @@ export default function App() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Top Floating Glassmorphic Navigation Header */}
       <header style={{
-        background: 'rgba(11, 15, 23, 0.85)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: '1px solid var(--border-glass)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100
-      }}>
+          background: 'rgba(11, 15, 23, 0.85)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: '1px solid var(--border-glass)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100
+        }}>
         <div style={{
           maxWidth: '1360px',
           margin: '0 auto',
@@ -187,7 +187,7 @@ export default function App() {
                 border: activeTab === 'interview' ? 'none' : '1px solid transparent'
               }}
             >
-              <Mic size={16} /> AI Mock Interview
+              <Mic size={16} /> Interview & Practice
             </button>
             
             <button
@@ -269,7 +269,13 @@ export default function App() {
       </header>
 
       {/* Main Workspace Canvas */}
-      <main style={{ maxWidth: '1360px', width: '100%', margin: '0 auto', padding: '32px 28px', flex: 1 }}>
+      <main style={{
+        maxWidth: '1360px',
+        width: '100%',
+        margin: '0 auto',
+        padding: '32px 28px',
+        flex: 1
+      }}>
         {activeTab === 'resume' && (
           <ResumeView
             parsedData={parsedData}
@@ -288,7 +294,9 @@ export default function App() {
         )}
 
         {activeTab === 'interview' && (
-          <InterviewView parsedData={parsedData} />
+          <InterviewView 
+            parsedData={parsedData} 
+          />
         )}
 
         {activeTab === 'dashboard' && (

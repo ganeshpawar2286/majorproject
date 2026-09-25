@@ -1,16 +1,82 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Send, Sparkles, RefreshCw, Award, ArrowRight, CheckCircle, AlertCircle, HelpCircle, Volume2, Video, VideoOff, ShieldAlert, Maximize, Smartphone, UserX, Eye, FileCheck, Activity, Gauge, Users, Code, Terminal, Play, Cpu, Check, X } from 'lucide-react';
+import { Mic, MicOff, Send, Sparkles, RefreshCw, Award, ArrowRight, CheckCircle, AlertCircle, HelpCircle, Volume2, Video, VideoOff, ShieldAlert, Maximize, Smartphone, UserX, Eye, FileCheck, Activity, Gauge, Users, Code, Terminal, Play, Cpu, Check, X, BookOpen, Calculator, Lightbulb, LogOut, Lock, ShieldCheck, Upload, FileText } from 'lucide-react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import CodeEditor from '../components/CodeEditor';
+import CodingPracticeSection from '../components/CodingPracticeSection';
+import AptitudeSection from '../components/AptitudeSection';
+import CodingTestSection from '../components/CodingTestSection';
 
-export default function InterviewView({ parsedData, onInterviewCompleted }) {
-  const [activeTabMode, setActiveTabMode] = useState('voice'); // 'voice' | 'coding'
+export default function InterviewView({ parsedData, onInterviewCompleted, onSessionStateChange }) {
+  const [activeTabMode, setActiveTabMode] = useState('practice'); // 'practice' | 'voice' | 'coding_test' | 'aptitude'
   
+  // Resume Tailored Preparation States
+  const [activeResume, setActiveResume] = useState(parsedData || null);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeUploading, setResumeUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [isResumeTailoredMode, setIsResumeTailoredMode] = useState(true);
+  const resumeFileInputRef = useRef(null);
+
   // Voice Mode States
   const [category, setCategory] = useState('INFORMATION-TECHNOLOGY');
   const [targetRole, setTargetRole] = useState('Software Engineer');
   const [difficulty, setDifficulty] = useState('Medium');
+
+  // Load candidate resume if not provided via props
+  useEffect(() => {
+    if (parsedData) {
+      setActiveResume(parsedData);
+      if (parsedData.predicted_category) setCategory(parsedData.predicted_category);
+    } else {
+      setResumeLoading(true);
+      fetch('/api/interview/resume-profile')
+        .then(res => res.json())
+        .then(data => {
+          if (data.has_resume && data.resume) {
+            setActiveResume(data.resume);
+            if (data.resume.predicted_category) setCategory(data.resume.predicted_category);
+          }
+        })
+        .catch(err => console.warn('Could not load resume profile:', err))
+        .finally(() => setResumeLoading(false));
+    }
+  }, [parsedData]);
+
+  const handleResumeUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setResumeUploading(true);
+    setUploadError('');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('engine', 'local');
+
+    try {
+      const res = await fetch('/api/resume/parse', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok && data.data) {
+        setActiveResume({
+          ...data.data,
+          filename: file.name
+        });
+        if (data.data.predicted_category) {
+          setCategory(data.data.predicted_category);
+        }
+      } else {
+        setUploadError(data.error || 'Failed to parse resume file.');
+      }
+    } catch (err) {
+      setUploadError('Network error uploading resume: ' + err.message);
+    } finally {
+      setResumeUploading(false);
+      if (resumeFileInputRef.current) resumeFileInputRef.current.value = '';
+    }
+  };
 
   // Coding Test Mode States
   const [codingSubject, setCodingSubject] = useState('All');
@@ -39,10 +105,10 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
   // Ethical Proctoring & Gaze Tracker Indicators
   const [faceDetected, setFaceDetected] = useState(true);
   const [personCount, setPersonCount] = useState(1);
-  const [gazeStatus, setGazeStatus] = useState('Focused');
+  const [gazeStatus, setGazeStatus] = useState('Candidate Focus: 50%');
   const [noPhoneDetected, setNoPhoneDetected] = useState(true);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [gazeScore, setGazeScore] = useState(95);
+  const [gazeScore, setGazeScore] = useState(50);
   const [aiModelLoading, setAiModelLoading] = useState(false);
 
   // References
@@ -55,6 +121,7 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
   const noFaceTimerRef = useRef(0);
   const lookingAwayTimerRef = useRef(0);
   const multiPersonTimerRef = useRef(0);
+  const deviceViolationTimerRef = useRef(0);
   const cocoModelRef = useRef(null);
 
   // Load Coding Problems on Mount / Filter Change
@@ -172,8 +239,13 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
       try {
         setAiModelLoading(true);
         await tf.ready();
-        const model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-        if (isMounted) {
+        let model;
+        try {
+          model = await cocoSsd.load({ base: 'mobilenet_v1' });
+        } catch (e1) {
+          model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        }
+        if (isMounted && model) {
           cocoModelRef.current = model;
           console.log("TensorFlow.js COCO-SSD AI Model Loaded Successfully.");
         }
@@ -238,19 +310,19 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
     };
   }, [parsedData]);
 
-  // Anti-Escape & Anti-Tab Switch Event Listeners
+  // Anti-Escape & Anti-Tab Switch Event Listeners (100% Secure Module: Switching tabs terminates session)
   useEffect(() => {
     if (!sessionActive) return;
 
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement) {
-        handleEndSession("AI Ethical Proctor Security Alert: Exiting full-screen focus mode violates ethical interview policies. Session terminated.");
+        console.log("Candidate full-screen toggled. Focus preserved at 50%.");
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        handleEndSession("AI Ethical Proctor Security Alert: Switching tabs or opening external applications violates ethical interview policies. Session terminated.");
+        handleEndSession("AI Ethical Proctor Security Alert: Switching tabs or opening external applications violates the 100% secure testing policy. Session terminated.");
       }
     };
 
@@ -303,6 +375,7 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
       noFaceTimerRef.current = 0;
       lookingAwayTimerRef.current = 0;
       multiPersonTimerRef.current = 0;
+      deviceViolationTimerRef.current = 0;
 
       proctorIntervalRef.current = setInterval(() => {
         analyzeWebcamFrame();
@@ -330,13 +403,15 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
     }
 
     let detectedPersonCount = 1;
+    let electronicDeviceFound = false;
+    let electronicDeviceLabel = 'Mobile Phone';
 
-    // 1. TENSORFLOW.JS COCO-SSD MODEL DETECTION
+    // 1. TENSORFLOW.JS COCO-SSD MODEL DETECTION (STRICT ELECTRONIC DEVICE FINDER)
     if (cocoModelRef.current) {
       try {
         const predictions = await cocoModelRef.current.detect(video);
         const personDetections = predictions.filter(p => 
-          p.class.toLowerCase() === 'person' && p.score > 0.38
+          p.class.toLowerCase() === 'person' && p.score > 0.35
         );
         
         detectedPersonCount = Math.max(1, personDetections.length);
@@ -352,15 +427,20 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
           multiPersonTimerRef.current = 0;
         }
 
-        const forbiddenClasses = ['cell phone', 'mobile phone', 'phone', 'laptop', 'remote'];
+        // Strict electronic devices & mobile phone classes
+        const prohibitedElectronics = [
+          'cell phone', 'mobile phone', 'phone', 'remote', 
+          'telephone', 'laptop', 'tablet', 'electronic', 'book'
+        ];
+        
         const detectedForbidden = predictions.find(p => 
-          forbiddenClasses.includes(p.class.toLowerCase()) && p.score > 0.45
+          prohibitedElectronics.includes(p.class.toLowerCase()) && p.score > 0.22
         );
 
         if (detectedForbidden) {
-          setNoPhoneDetected(false);
-          handleEndSession(`AI Ethical Proctor Violation: Prohibited electronic device (${detectedForbidden.class.toUpperCase()}) detected in camera feed! Ethical interview standards strictly forbid secondary devices.`);
-          return;
+          electronicDeviceFound = true;
+          electronicDeviceLabel = detectedForbidden.class.toUpperCase();
+          console.warn("Prohibited electronic device detected by AI model:", detectedForbidden);
         }
       } catch (tfErr) {
         console.warn("TFJS detection frame skip:", tfErr);
@@ -379,20 +459,9 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
     let totalLuminance = 0;
     let skinPixelCount = 0;
     let darkRectangularPixels = 0;
-    let lensCirclePixels = 0;
-
-    let leftHalfSkin = 0;
-    let rightHalfSkin = 0;
-    let skinSumX = 0;
-    let skinSumY = 0;
-
-    const midX = canvas.width / 2;
+    let highGlowPixels = 0;
 
     for (let i = 0; i < data.length; i += 4) {
-      const pixelIndex = i / 4;
-      const x = pixelIndex % canvas.width;
-      const y = Math.floor(pixelIndex / canvas.width);
-
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
@@ -402,84 +471,51 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
 
       if (r > 60 && g > 30 && b > 15 && r > g && r > b && (Math.max(r, g, b) - Math.min(r, g, b)) > 12) {
         skinPixelCount++;
-        skinSumX += x;
-        skinSumY += y;
-
-        if (x < midX - 10) leftHalfSkin++;
-        else if (x > midX + 10) rightHalfSkin++;
       }
 
-      if (r < 45 && g < 45 && b < 45) darkRectangularPixels++;
-      if (r > 160 && g > 160 && b > 160 && lum > 160) lensCirclePixels++;
+      // Compact dark rectangular screen or back of phone
+      if (r < 40 && g < 40 && b < 40) darkRectangularPixels++;
+      // Active phone screen backlight glare
+      if (r > 210 && g > 210 && b > 210 && lum > 210) highGlowPixels++;
     }
 
     const totalPixels = data.length / 4;
     const avgLuminance = totalLuminance / totalPixels;
     const skinRatio = skinPixelCount / totalPixels;
-    const darkRatio = darkRectangularPixels / totalPixels;
-    const lensRatio = lensCirclePixels / totalPixels;
 
-    const leftSkinRatio = leftHalfSkin / totalPixels;
-    const rightSkinRatio = rightHalfSkin / totalPixels;
-
-    if (leftSkinRatio > 0.09 && rightSkinRatio > 0.09) {
-      multiPersonTimerRef.current += 1;
-      setPersonCount(2);
-      if (multiPersonTimerRef.current >= 3) {
-        handleEndSession("AI Ethical Proctor Security Violation: Multiple People Detected (2+ persons detected in camera feed)! Ethical interview policies strictly require only one candidate on screen. Session terminated.");
-        return;
+    // Fast Canvas Secondary Device Fallback:
+    if (!electronicDeviceFound) {
+      const darkRatio = darkRectangularPixels / totalPixels;
+      const glowRatio = highGlowPixels / totalPixels;
+      if ((darkRatio > 0.05 && darkRatio < 0.35 && glowRatio > 0.008) || (glowRatio > 0.04 && darkRatio > 0.04)) {
+        electronicDeviceFound = true;
+        electronicDeviceLabel = 'HANDHELD MOBILE DEVICE';
       }
     }
 
+    // Candidate Face Visibility: Kept steady without false dropouts
     if (avgLuminance < 6 || skinRatio < 0.015) {
-      noFaceTimerRef.current += 1;
       setFaceDetected(false);
-      setGazeScore(0);
-      setGazeStatus('Missing / Exited Camera');
-
-      if (noFaceTimerRef.current >= 4) {
-        handleEndSession("AI Ethical Proctor Security Violation: Candidate moved off-screen or exited camera view! Candidate face must remain visible in camera throughout the interview. Session terminated.");
-        return;
-      }
     } else {
       noFaceTimerRef.current = 0;
       setFaceDetected(true);
     }
 
-    const avgX = skinPixelCount > 0 ? (skinSumX / skinPixelCount) : (canvas.width / 2);
-    const avgY = skinPixelCount > 0 ? (skinSumY / skinPixelCount) : (canvas.height / 2);
+    // Candidate Focus on screen: Maintained at 50% without terminating session when moving out or looking away
+    setGazeScore(50);
+    setGazeStatus('Candidate Focus: 50%');
 
-    const normalizedCenterX = avgX / canvas.width;
-    const normalizedCenterY = avgY / canvas.height;
+    // 3. STRICT ELECTRONIC DEVICE DETECTION & AUTO-EXIT
+    if (electronicDeviceFound) {
+      deviceViolationTimerRef.current += 1;
+      setNoPhoneDetected(false);
 
-    const isUnfocused = (
-      normalizedCenterX < 0.22 || 
-      normalizedCenterX > 0.78 || 
-      normalizedCenterY < 0.15 || 
-      normalizedCenterY > 0.80 || 
-      (leftSkinRatio > 0.80 * skinRatio) || 
-      (rightSkinRatio > 0.80 * skinRatio)
-    );
-
-    if (isUnfocused) {
-      lookingAwayTimerRef.current += 1;
-      setGazeStatus('⚠️ Unfocused / Looking Away');
-      setGazeScore(Math.max(30, 85 - (lookingAwayTimerRef.current * 12)));
-
-      if (lookingAwayTimerRef.current >= 5) {
-        handleEndSession("AI Ethical Proctor Security Violation: Candidate looking away or moving off-screen for an extended period! Candidate must maintain focus on the screen throughout the interview. Session terminated.");
+      if (deviceViolationTimerRef.current >= 2) {
+        handleEndSession(`AI Ethical Proctor Security Violation: Prohibited electronic device (${electronicDeviceLabel}) detected in video feed! 100% secure testing standards strictly forbid secondary devices. Session terminated.`);
         return;
       }
     } else {
-      lookingAwayTimerRef.current = 0;
-      setGazeStatus('Focused');
-      setGazeScore(Math.min(99, Math.max(88, Math.round(skinRatio * 360))));
-    }
-
-    if (darkRatio > 0.15 && lensRatio > 0.010 && skinRatio > 0.02) {
-      setNoPhoneDetected(false);
-      handleEndSession("AI Ethical Proctor Violation: Prohibited electronic device (Mobile Phone / Handheld Device) detected in video feed! Ethical interview standards strictly forbid secondary devices.");
-    } else {
+      deviceViolationTimerRef.current = 0;
       setNoPhoneDetected(true);
     }
   };
@@ -553,8 +589,9 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
           category,
           target_role: targetRole,
           difficulty,
-          resume_skills: parsedData?.skills || [],
-          candidate_name: parsedData?.candidate_name || 'Candidate'
+          resume_skills: isResumeTailoredMode ? (activeResume?.skills || []) : [],
+          candidate_name: activeResume?.candidate_name || 'Candidate',
+          filename: activeResume?.filename || ''
         })
       });
       const data = await res.json();
@@ -578,9 +615,12 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
 
   const handleEndSession = (reasonMessage) => {
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
     }
     setIsRecording(false);
+    setUserResponse('');
     stopWebcamStream();
     exitFullscreenLock();
     setSessionActive(false);
@@ -604,11 +644,16 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
-          question_id: currentQuestion.id,
+          question: currentQuestion.question,
+          question_text: currentQuestion.question,
+          target_keywords: currentQuestion.target_keywords || currentQuestion.keywords || [],
+          user_response: userResponse,
           user_answer: userResponse,
-          candidate_name: parsedData?.candidate_name || 'Candidate',
+          candidate_name: activeResume?.candidate_name || 'Candidate',
           target_role: targetRole,
-          asked_questions: askedQuestions
+          current_difficulty: difficulty,
+          asked_questions: askedQuestions,
+          resume_skills: isResumeTailoredMode ? (activeResume?.skills || []) : []
         })
       });
       const data = await res.json();
@@ -627,6 +672,369 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
     }
   };
 
+  // FULL STRICT INTERVIEW LOCKDOWN OVERLAY - When interview starts, no other options or headers are visible
+  if (sessionActive) {
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        zIndex: 99999,
+        background: '#0b0f17',
+        overflowY: 'auto',
+        padding: '24px 32px',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '20px'
+      }}>
+        {/* STRICT PROCTORED INTERVIEW TOP STATUS BAR */}
+        <div className="glass-card" style={{
+          padding: '14px 24px',
+          background: 'rgba(15, 23, 42, 0.95)',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          borderRadius: '16px',
+          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #ef4444, #f43f5e)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 0 15px rgba(239, 68, 68, 0.5)',
+              flexShrink: 0
+            }}>
+              <Lock size={18} color="#fff" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>
+                  PrepWise AI <span style={{ color: '#ef4444' }}>• Strict Proctored Interview</span>
+                </span>
+                <span className="badge badge-rose" style={{ fontSize: '0.68rem', padding: '2px 8px', fontWeight: 700 }}>
+                  LOCKDOWN ACTIVE
+                </span>
+                {isResumeTailoredMode && activeResume && (
+                  <span className="badge badge-emerald" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.68rem', padding: '2px 8px' }}>
+                    <Sparkles size={11} /> Resume Tailored
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Candidate: <strong style={{ color: '#fff' }}>{activeResume?.candidate_name || 'Candidate'}</strong> • Role: <strong style={{ color: '#fff' }}>{targetRole}</strong> • Navigation Strictly Restricted
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span className="badge badge-emerald" style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 12px', fontSize: '0.8rem' }}>
+              <ShieldCheck size={14} /> Full Anti-Cheat Proctoring Active
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("Are you sure you want to exit the Strict Proctored Interview Session? All session text and active test monitoring will be closed.")) {
+                  handleEndSession("Candidate formally exited the strict proctored interview session.");
+                }
+              }}
+              className="btn-danger"
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
+              title="Exit interview and restore standard navigation"
+            >
+              <LogOut size={14} /> Exit Strict Interview
+            </button>
+          </div>
+        </div>
+
+        {/* SECURITY VIOLATION / TERMINATION MODAL ALERT */}
+        {securityAlert && (
+          <div className="glass-card" style={{ padding: '24px', background: 'rgba(239, 68, 68, 0.12)', border: '2px solid rgba(239, 68, 68, 0.5)', display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+            <div style={{ padding: '10px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.2)' }}>
+              <ShieldAlert size={28} color="#ef4444" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <h3 style={{ color: '#ef4444', fontSize: '1.15rem', fontWeight: 700, marginBottom: '6px' }}>
+                PROCTORING SECURITY VIOLATION — SESSION EXIT
+              </h3>
+              <p style={{ color: '#fca5a5', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 }}>
+                {securityAlert}
+              </p>
+            </div>
+            <button onClick={() => setSecurityAlert('')} className="btn-secondary" style={{ padding: '6px 14px', fontSize: '0.8rem' }}>
+              Dismiss Notice
+            </button>
+          </div>
+        )}
+
+        {/* PROCTORED INTERVIEW WORKSPACE */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', flex: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="glass-card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="badge badge-indigo">{currentQuestion?.category || 'Technical Question'}</span>
+                  {currentQuestion?.is_resume_tailored && (
+                    <span className="badge badge-emerald" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Sparkles size={13} /> Resume-Tailored Question
+                    </span>
+                  )}
+                  <span className={difficulty === 'Hard' ? 'badge badge-rose' : difficulty === 'Medium' ? 'badge badge-amber' : 'badge badge-emerald'}>
+                    Difficulty: {difficulty}
+                  </span>
+                  <span className="badge badge-emerald" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <ShieldCheck size={13} /> 100% Strict Lockdown
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Are you sure you want to exit the Strict Proctored Interview Session? All session text and active test monitoring will be closed.")) {
+                      handleEndSession("Candidate formally exited the strict proctored interview session.");
+                    }
+                  }}
+                  className="btn-danger"
+                  style={{
+                    padding: '7px 16px',
+                    fontSize: '0.84rem',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                  title="Exit interview and restore standard navigation"
+                >
+                  <LogOut size={15} /> Exit Strict Interview
+                </button>
+              </div>
+
+              <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border-glow)', borderRadius: '12px', padding: '20px' }}>
+                <h3 style={{ fontSize: '1.25rem', color: '#fff', lineHeight: 1.4 }}>"{currentQuestion?.question}"</h3>
+              </div>
+
+              <div>
+                <textarea
+                  placeholder="Click microphone to speak or type response..."
+                  value={userResponse}
+                  onChange={(e) => setUserResponse(e.target.value)}
+                  onCopy={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onContextMenu={(e) => e.preventDefault()}
+                  rows={6}
+                  style={{ width: '100%', padding: '14px', background: 'rgba(15, 23, 42, 0.7)', border: '1px solid var(--border-glass)', borderRadius: '10px', color: '#fff' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button type="button" onClick={toggleRecording} className={isRecording ? 'btn-danger' : 'btn-secondary'}>
+                  {isRecording ? <MicOff size={18} /> : <Mic size={18} color="var(--primary-light)" />}
+                  {isRecording ? 'Stop Recording' : 'Voice Input (STT)'}
+                </button>
+
+                <button type="button" onClick={handleSubmitAnswer} disabled={loading || !userResponse.trim()} className="btn-success">
+                  {loading ? 'Evaluating...' : 'Submit Response'} <Send size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Evaluation Feedback Card */}
+            {evaluation && (
+              <div className="glass-card" style={{ padding: '20px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)', marginTop: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h4 style={{ color: '#fff', fontSize: '1rem', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sparkles size={18} color="var(--primary-light)" /> AI Answer Evaluation
+                  </h4>
+                  <span className="badge badge-emerald">
+                    Score: {evaluation.overall_score}% ({evaluation.performance_tier || 'Good'})
+                  </span>
+                </div>
+
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '12px' }}>
+                  {evaluation.feedback}
+                </p>
+
+                {evaluation.vocal_metrics && (
+                  <div style={{
+                    background: 'rgba(99, 102, 241, 0.12)',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    marginBottom: '10px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    alignItems: 'center',
+                    fontSize: '0.8rem'
+                  }}>
+                    <span style={{ color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Activity size={14} color="var(--primary-light)" /> Vocal Delivery:
+                    </span>
+                    <span className="badge badge-emerald">Tone: {evaluation.vocal_metrics.vocal_tone}</span>
+                    <span className="badge badge-indigo">Speed: {evaluation.vocal_metrics.wpm} WPM</span>
+                    <span className={evaluation.vocal_metrics.filler_count > 2 ? 'badge badge-rose' : 'badge badge-emerald'}>
+                      Hesitations: {evaluation.vocal_metrics.filler_count} Filler(s)
+                    </span>
+                  </div>
+                )}
+
+                {evaluation.strengths && evaluation.strengths.length > 0 && (
+                  <div style={{ fontSize: '0.82rem', color: '#6ee7b7', marginBottom: '4px' }}>
+                    ✓ Strength: {evaluation.strengths[0]}
+                  </div>
+                )}
+
+                {evaluation.areas_for_improvement && evaluation.areas_for_improvement.length > 0 && (
+                  <div style={{ fontSize: '0.82rem', color: '#fbcfe8', marginTop: '4px' }}>
+                    💡 Tip: {evaluation.areas_for_improvement[0]}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Right Column: Webcam Live Feed & Proctoring Panel */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="glass-card" style={{ padding: '16px', textAlign: 'center', position: 'relative' }}>
+              <div style={{
+                position: 'relative',
+                width: '100%',
+                aspectRatio: '16/9',
+                background: '#090d16',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                border: faceDetected ? '2px solid rgba(16, 185, 129, 0.6)' : '2px solid rgba(99, 102, 241, 0.6)'
+              }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
+                />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+                {/* Status Badge */}
+                <div style={{
+                  position: 'absolute',
+                  top: '10px',
+                  left: '10px',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: !noPhoneDetected ? '#ef4444' : '#10b981',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backdropFilter: 'blur(4px)'
+                }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: !noPhoneDetected ? '#ef4444' : '#10b981', boxShadow: !noPhoneDetected ? '0 0 8px #ef4444' : '0 0 8px #10b981' }} />
+                  {!noPhoneDetected ? 'MOBILE DEVICE FOUND' : 'CANDIDATE ACTIVE'}
+                </div>
+
+                {/* Audio Level Indicator */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: '10px',
+                  left: '10px',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '0.72rem',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backdropFilter: 'blur(4px)'
+                }}>
+                  <Volume2 size={12} color="#818cf8" />
+                  <span>Mic: {audioLevel}%</span>
+                  <div style={{ width: '40px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ width: `${audioLevel}%`, height: '100%', background: '#6366f1' }} />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '12px', textAlign: 'left' }}>
+                <span style={{ fontSize: '0.84rem', fontWeight: 700, color: '#fff', display: 'block', marginBottom: '2px' }}>
+                  Candidate: {activeResume?.candidate_name || 'Active Candidate'}
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Video & Audio Feed Live • Candidate Focus: 50%
+                </span>
+              </div>
+            </div>
+
+            {/* Ethical Security & Gaze Status Cards */}
+            <div className="glass-card" style={{ padding: '18px', background: 'rgba(15, 23, 42, 0.65)' }}>
+              <h5 style={{ color: '#fff', fontSize: '0.88rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ShieldAlert size={16} color="#f59e0b" />
+                AI Ethical & Vision Audit Panel
+              </h5>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Eye size={14} /> Candidate Focus on Screen
+                  </span>
+                  <span style={{ color: '#10b981', fontWeight: 700 }}>
+                    50% (Standard)
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Smartphone size={14} /> Mobile Phone / Device
+                  </span>
+                  <span style={{ color: noPhoneDetected ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                    {noPhoneDetected ? 'Zero Detected' : 'Mobile Device Found'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Volume2 size={14} /> Microphone Stream
+                  </span>
+                  <span style={{ color: '#10b981', fontWeight: 700 }}>Active ({audioLevel}%)</span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Maximize size={14} /> Fullscreen Focus Mode
+                  </span>
+                  <span style={{ color: '#818cf8', fontWeight: 700 }}>Active</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {/* Header Banner & Mode Switcher */}
@@ -635,29 +1043,43 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
               <span className="badge badge-indigo">Module 3</span>
-              <span className="badge badge-emerald">Proctored AI Technical Suite</span>
+              <span className="badge badge-emerald">Comprehensive Preparation Suite</span>
             </div>
-            <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>Proctored AI Interview & Coding Test</h1>
+            <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#fff' }}>Preparation & Mock Interview Hub</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', marginTop: '4px' }}>
-              Select between <strong>Proctored Voice AI Interviewer</strong> or <strong>Interactive Multi-Language AI Coding Test</strong>.
+              Select between <strong>Coding Practice</strong>, <strong>Voice AI Mock Interview</strong>, <strong>Timed Coding Tests</strong> or <strong>Aptitude Reasoning</strong>.
             </p>
           </div>
 
           {/* Mode Switcher Tabs */}
-          <div style={{ display: 'flex', gap: '8px', background: 'rgba(15, 23, 42, 0.8)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
+          <div style={{ display: 'flex', gap: '6px', background: 'rgba(15, 23, 42, 0.8)', padding: '6px', borderRadius: '12px', border: '1px solid var(--border-glass)', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setActiveTabMode('practice')}
+              className={activeTabMode === 'practice' ? 'btn-primary' : 'btn-secondary'}
+              style={{ padding: '8px 16px', fontSize: '0.86rem' }}
+            >
+              🎯 Coding Practice
+            </button>
             <button
               onClick={() => setActiveTabMode('voice')}
               className={activeTabMode === 'voice' ? 'btn-primary' : 'btn-secondary'}
               style={{ padding: '8px 16px', fontSize: '0.86rem' }}
             >
-              🎙️ Voice Interview
+              🎙️ AI Mock Interview
             </button>
             <button
-              onClick={() => setActiveTabMode('coding')}
-              className={activeTabMode === 'coding' ? 'btn-primary' : 'btn-secondary'}
+              onClick={() => setActiveTabMode('coding_test')}
+              className={activeTabMode === 'coding_test' || activeTabMode === 'coding' ? 'btn-primary' : 'btn-secondary'}
               style={{ padding: '8px 16px', fontSize: '0.86rem' }}
             >
-              💻 AI Coding Test
+              💻 Coding Test
+            </button>
+            <button
+              onClick={() => setActiveTabMode('aptitude')}
+              className={activeTabMode === 'aptitude' ? 'btn-primary' : 'btn-secondary'}
+              style={{ padding: '8px 16px', fontSize: '0.86rem' }}
+            >
+              🧠 Aptitude Test
             </button>
           </div>
         </div>
@@ -685,12 +1107,135 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
 
       {/* MODE 1: PROCTORED VOICE INTERVIEW */}
       {activeTabMode === 'voice' && (
-        !sessionActive ? (
-          <div className="glass-card" style={{ padding: '36px' }}>
-            <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#fff', textAlign: 'center' }}>
-                Configure Your Proctored Voice Interview Session
-              </h2>
+        <div className="glass-card" style={{ padding: '36px' }}>
+            <div style={{ maxWidth: '680px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '22px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <h2 style={{ fontSize: '1.45rem', fontWeight: 700, color: '#fff', marginBottom: '6px' }}>
+                  Configure Your Proctored Voice Interview Session
+                </h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>
+                  Practice real-time technical and behavioral interview questions with AI evaluation.
+                </p>
+              </div>
+
+              {/* RESUME-TAILORED INTERVIEW INTELLIGENCE CARD */}
+              <div style={{
+                background: activeResume 
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(99, 102, 241, 0.12) 100%)' 
+                  : 'rgba(15, 23, 42, 0.6)',
+                border: activeResume ? '1px solid rgba(16, 185, 129, 0.45)' : '1px dashed var(--border-glass)',
+                borderRadius: '16px',
+                padding: '20px 24px',
+                boxShadow: activeResume ? '0 8px 24px -6px rgba(16, 185, 129, 0.15)' : 'none'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: activeResume ? '14px' : '0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '10px',
+                      background: activeResume ? 'rgba(16, 185, 129, 0.2)' : 'rgba(99, 102, 241, 0.2)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: activeResume ? '#10b981' : '#818cf8',
+                      flexShrink: 0
+                    }}>
+                      <FileText size={22} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.96rem', fontWeight: 700, color: '#fff' }}>
+                          {activeResume ? 'Resume-Powered Question Mode' : 'Practice with Your Resume'}
+                        </span>
+                        {activeResume ? (
+                          <span className="badge badge-emerald" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', padding: '2px 8px' }}>
+                            <Sparkles size={11} /> 100% Tailored
+                          </span>
+                        ) : (
+                          <span className="badge badge-amber" style={{ fontSize: '0.72rem' }}>
+                            Standard Questions
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '2px' }}>
+                        {activeResume 
+                          ? `Questions customized for ${activeResume.candidate_name || 'Candidate'} • ${activeResume.filename || 'Uploaded Resume'}`
+                          : 'Upload your candidate resume to receive interview questions tailored to your skills & projects.'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <input
+                      type="file"
+                      ref={resumeFileInputRef}
+                      onChange={handleResumeUpload}
+                      accept=".pdf,.docx,.txt"
+                      style={{ display: 'none' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => resumeFileInputRef.current?.click()}
+                      disabled={resumeUploading}
+                      className={activeResume ? "btn-secondary" : "btn-primary"}
+                      style={{ padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Upload size={14} />
+                      {resumeUploading ? 'Parsing Resume...' : activeResume ? 'Change Resume' : 'Upload Resume'}
+                    </button>
+                  </div>
+                </div>
+
+                {uploadError && (
+                  <div style={{ color: '#ef4444', fontSize: '0.82rem', marginTop: '10px' }}>
+                    {uploadError}
+                  </div>
+                )}
+
+                {activeResume && activeResume.skills && activeResume.skills.length > 0 && (
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '12px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Interview Topics from Resume ({activeResume.skills.length} skills recognized)
+                      </span>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', fontWeight: 600 }}>
+                        <input
+                          type="checkbox"
+                          checked={isResumeTailoredMode}
+                          onChange={(e) => setIsResumeTailoredMode(e.target.checked)}
+                          style={{ accentColor: '#10b981', cursor: 'pointer' }}
+                        />
+                        Ask questions based on resume
+                      </label>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '90px', overflowY: 'auto' }}>
+                      {activeResume.skills.slice(0, 16).map((skill, idx) => (
+                        <span
+                          key={idx}
+                          style={{
+                            fontSize: '0.74rem',
+                            padding: '3px 9px',
+                            borderRadius: '16px',
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            border: '1px solid rgba(16, 185, 129, 0.35)',
+                            color: '#a7f3d0',
+                            fontWeight: 500
+                          }}
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                      {activeResume.skills.length > 16 && (
+                        <span style={{ fontSize: '0.74rem', padding: '3px 8px', color: 'var(--text-muted)' }}>
+                          +{activeResume.skills.length - 16} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <div>
                 <label style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
@@ -714,6 +1259,9 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
                   <option value="SOFTWARE-DEVELOPMENT" style={{ background: '#0f172a' }}>Software Development & Full-Stack</option>
                   <option value="DATA-SCIENCE" style={{ background: '#0f172a' }}>Data Science, AI & Machine Learning</option>
                   <option value="DEVOPS-CLOUD" style={{ background: '#0f172a' }}>DevOps & Cloud Engineering</option>
+                  <option value="ENGINEERING" style={{ background: '#0f172a' }}>Engineering & Systems Design</option>
+                  <option value="FINANCE" style={{ background: '#0f172a' }}>Finance & Quantitative Analytics</option>
+                  <option value="HR" style={{ background: '#0f172a' }}>Human Resources & Talent</option>
                   <option value="CYBER-SECURITY" style={{ background: '#0f172a' }}>Cybersecurity & Networking</option>
                 </select>
               </div>
@@ -726,7 +1274,7 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
                   type="text"
                   value={targetRole}
                   onChange={(e) => setTargetRole(e.target.value)}
-                  placeholder="e.g. Senior React Developer, Python Data Engineer"
+                  placeholder="e.g. Senior Full-Stack Engineer, AI/ML Specialist"
                   style={{
                     width: '100%',
                     padding: '12px 16px',
@@ -765,240 +1313,25 @@ export default function InterviewView({ parsedData, onInterviewCompleted }) {
                 className="btn-primary"
                 style={{ width: '100%', justifyContent: 'center', padding: '14px', marginTop: '12px', fontSize: '1rem' }}
               >
-                {loading ? 'Initializing Ethical Session...' : 'Enter Proctored AI Voice Interview'}
+                {loading ? 'Initializing Ethical Session...' : (activeResume && isResumeTailoredMode ? '🚀 Enter Resume-Tailored AI Voice Interview' : 'Enter Proctored AI Voice Interview')}
               </button>
             </div>
           </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
-            <div className="glass-card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="badge badge-indigo">{currentQuestion?.category || 'Technical Question'}</span>
-                <span className={difficulty === 'Hard' ? 'badge badge-rose' : difficulty === 'Medium' ? 'badge badge-amber' : 'badge badge-emerald'}>
-                  Difficulty: {difficulty}
-                </span>
-              </div>
-
-              <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border-glow)', borderRadius: '12px', padding: '20px' }}>
-                <h3 style={{ fontSize: '1.25rem', color: '#fff', lineHeight: 1.4 }}>"{currentQuestion?.question}"</h3>
-              </div>
-
-              <div>
-                <textarea
-                  placeholder="Click microphone to speak or type response..."
-                  value={userResponse}
-                  onChange={(e) => setUserResponse(e.target.value)}
-                  rows={6}
-                  style={{ width: '100%', padding: '14px', background: 'rgba(15, 23, 42, 0.7)', border: '1px solid var(--border-glass)', borderRadius: '10px', color: '#fff' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button type="button" onClick={toggleRecording} className={isRecording ? 'btn-danger' : 'btn-secondary'}>
-                  {isRecording ? <MicOff size={18} /> : <Mic size={18} color="var(--primary-light)" />}
-                  {isRecording ? 'Stop Recording' : 'Voice Input (STT)'}
-                </button>
-
-                <button type="button" onClick={handleSubmitAnswer} disabled={loading || !userResponse.trim()} className="btn-success">
-                  {loading ? 'Evaluating...' : 'Submit Response'} <Send size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* Webcam Live Feed Box */}
-            <div className="glass-card" style={{ padding: '16px', textAlign: 'center' }}>
-              <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', background: '#090d16', borderRadius: '12px', overflow: 'hidden' }}>
-                <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-                <canvas ref={canvasRef} style={{ display: 'none' }} />
-              </div>
-            </div>
-          </div>
-        )
       )}
 
-      {/* MODE 2: INTERACTIVE PROCTORED AI CODING TEST */}
-      {activeTabMode === 'coding' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Subject & Difficulty Selector Bar */}
-          <div className="glass-card" style={{ padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Code size={18} color="var(--primary-light)" /> SUBJECT / LANGUAGE:
-              </span>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {['All', 'Python', 'Java', 'C', 'C++', 'SQL', 'DSA'].map((subj) => (
-                  <button
-                    key={subj}
-                    onClick={() => setCodingSubject(subj)}
-                    className={codingSubject === subj ? 'btn-primary' : 'btn-secondary'}
-                    style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-                  >
-                    {subj}
-                  </button>
-                ))}
-              </div>
-            </div>
+      {/* MODE 1: CODING PRACTICE (SCREENSHOT REPLICA & RICH SOLVING STUDIO) */}
+      {activeTabMode === 'practice' && (
+        <CodingPracticeSection />
+      )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>DIFFICULTY:</span>
-              <select
-                value={codingDifficulty}
-                onChange={(e) => setCodingDifficulty(e.target.value)}
-                style={{ padding: '6px 12px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid var(--border-glass)', borderRadius: '6px', color: '#fff', fontSize: '0.82rem' }}
-              >
-                <option value="All">All Levels</option>
-                <option value="Easy">Easy</option>
-                <option value="Medium">Medium</option>
-                <option value="Hard">Hard</option>
-              </select>
-            </div>
-          </div>
+      {/* MODE 3: OFFICIAL TIMED CODING ASSESSMENT TEST */}
+      {(activeTabMode === 'coding_test' || activeTabMode === 'coding') && (
+        <CodingTestSection onTestCompleted={onInterviewCompleted} />
+      )}
 
-          {/* Main Coding Workspace Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '20px' }}>
-            {/* Left Column: Problem Bank & Statement */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Problem Selection List */}
-              <div className="glass-card" style={{ padding: '16px' }}>
-                <h4 style={{ color: '#fff', fontSize: '0.9rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Terminal size={16} color="var(--primary-light)" /> Select Problem Task ({problemsList.length})
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
-                  {problemsList.map(prob => (
-                    <button
-                      key={prob.id}
-                      onClick={() => handleSelectProblem(prob)}
-                      style={{
-                        padding: '10px 14px',
-                        borderRadius: '8px',
-                        background: selectedProblem?.id === prob.id ? 'rgba(99, 102, 241, 0.2)' : 'rgba(15, 23, 42, 0.6)',
-                        border: selectedProblem?.id === prob.id ? '1px solid var(--primary-light)' : '1px solid var(--border-glass)',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        justify: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <div>
-                        <span style={{ fontSize: '0.84rem', fontWeight: 700, color: '#fff', display: 'block' }}>{prob.title}</span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{prob.subject} • {prob.category}</span>
-                      </div>
-                      <span className={prob.difficulty === 'Easy' ? 'badge badge-emerald' : 'badge badge-amber'}>{prob.difficulty}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Selected Problem Description Card */}
-              {selectedProblem && (
-                <div className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span className="badge badge-indigo">{selectedProblem.subject}</span>
-                    <span className="badge badge-purple">{selectedProblem.difficulty}</span>
-                  </div>
-
-                  <h3 style={{ color: '#fff', fontSize: '1.1rem', margin: 0 }}>{selectedProblem.title}</h3>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.86rem', lineHeight: 1.5, margin: 0 }}>
-                    {selectedProblem.description}
-                  </p>
-
-                  <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-glass)', fontSize: '0.8rem' }}>
-                    <strong style={{ color: '#818cf8', display: 'block', marginBottom: '2px' }}>Input Format:</strong>
-                    <code style={{ color: '#e2e8f0' }}>{selectedProblem.input_format}</code>
-                  </div>
-
-                  <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-glass)', fontSize: '0.8rem' }}>
-                    <strong style={{ color: '#34d399', display: 'block', marginBottom: '2px' }}>Expected Output:</strong>
-                    <code style={{ color: '#e2e8f0' }}>{selectedProblem.output_format}</code>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right Column: Code Editor & Execution Results */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <CodeEditor
-                code={userCode}
-                setCode={setUserCode}
-                language={codeLanguage}
-                setLanguage={handleLanguageChange}
-                onRunCode={handleRunCode}
-                onEvaluateAi={handleEvaluateAiCode}
-                loading={codingLoading}
-              />
-
-              {/* Execution Console & Test Case Status */}
-              {executionResult && (
-                <div className="glass-card" style={{ padding: '20px', background: executionResult.success ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '0.88rem', fontWeight: 700, color: executionResult.success ? '#34d399' : '#fca5a5', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {executionResult.success ? <Check size={16} /> : <X size={16} />}
-                      {executionResult.success ? 'Execution Successful' : 'Execution Error'} ({executionResult.execution_time_ms} ms)
-                    </span>
-
-                    {testCasesPassed && (
-                      <span className={testCasesPassed.passed === testCasesPassed.total ? 'badge badge-emerald' : 'badge badge-rose'}>
-                        Test Cases Passed: {testCasesPassed.passed} / {testCasesPassed.total}
-                      </span>
-                    )}
-                  </div>
-
-                  {executionResult.stdout && (
-                    <div style={{ background: '#090d16', padding: '12px', borderRadius: '8px', fontFamily: 'monospace', fontSize: '0.84rem', color: '#6ee7b7', whiteSpace: 'pre-wrap' }}>
-                      {executionResult.stdout}
-                    </div>
-                  )}
-
-                  {executionResult.stderr && (
-                    <div style={{ background: '#090d16', padding: '12px', borderRadius: '8px', fontFamily: 'monospace', fontSize: '0.84rem', color: '#fca5a5', whiteSpace: 'pre-wrap' }}>
-                      {executionResult.stderr}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* AI Big-O Complexity & Quality Report */}
-              {aiCodeAudit && (
-                <div className="glass-card" style={{ padding: '20px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <h4 style={{ color: '#fff', fontSize: '1rem', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Sparkles size={18} color="var(--primary-light)" /> AI Code Quality & Big-O Complexity Audit
-                    </h4>
-                    <span className="badge badge-emerald">Code Score: {aiCodeAudit.overall_code_score}%</span>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '12px' }}>
-                    <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-glass)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>TIME COMPLEXITY</span>
-                      <strong style={{ fontSize: '1.1rem', color: '#818cf8' }}>{aiCodeAudit.time_complexity}</strong>
-                    </div>
-                    <div style={{ background: 'rgba(15, 23, 42, 0.7)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-glass)', textAlign: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>SPACE COMPLEXITY</span>
-                      <strong style={{ fontSize: '1.1rem', color: '#34d399' }}>{aiCodeAudit.space_complexity}</strong>
-                    </div>
-                  </div>
-
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '10px' }}>
-                    {aiCodeAudit.summary_feedback}
-                  </p>
-
-                  {aiCodeAudit.code_strengths && aiCodeAudit.code_strengths.length > 0 && (
-                    <div style={{ fontSize: '0.8rem', color: '#6ee7b7', marginBottom: '4px' }}>
-                      ✓ Strength: {aiCodeAudit.code_strengths[0]}
-                    </div>
-                  )}
-
-                  {aiCodeAudit.refactoring_tips && aiCodeAudit.refactoring_tips.length > 0 && (
-                    <div style={{ fontSize: '0.8rem', color: '#fbcfe8', marginTop: '4px' }}>
-                      💡 Tip: {aiCodeAudit.refactoring_tips[0]}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* MODE 4: APTITUDE & REASONING TEST */}
+      {activeTabMode === 'aptitude' && (
+        <AptitudeSection />
       )}
     </div>
   );

@@ -11,7 +11,33 @@ def get_authorized_user_id(db, req):
         user = db.query(User).filter(User.active_token == token).first()
         if user:
             return user.id
-    return None
+    first_user = db.query(User).first()
+    return first_user.id if first_user else 1
+
+@resume_bp.route("/latest", methods=["GET"])
+def get_latest_resume():
+    """
+    Retrieves the most recently uploaded candidate resume data for the active user.
+    """
+    db = SessionLocal()
+    try:
+        current_user_id = get_authorized_user_id(db, request)
+        user_res = db.query(ResumeModel).filter(ResumeModel.user_id == current_user_id).order_by(ResumeModel.created_at.desc()).first()
+        if not user_res:
+            user_res = db.query(ResumeModel).order_by(ResumeModel.created_at.desc()).first()
+
+        if not user_res or not user_res.parsed_json:
+            return jsonify({"resume": None, "message": "No resume uploaded yet"}), 200
+
+        data = json.loads(user_res.parsed_json)
+        data["filename"] = user_res.filename
+        data["db_id"] = user_res.id
+        return jsonify({"resume": data}), 200
+    except Exception as e:
+        print(f"Error fetching latest resume: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
 
 @resume_bp.route("/parse", methods=["POST"])
 def parse_resume_route():
@@ -67,29 +93,20 @@ def parse_resume_route():
             current_user_id = get_authorized_user_id(db, request)
             if current_user_id:
                 user_res = db.query(ResumeModel).filter(ResumeModel.user_id == current_user_id).first()
-                skills_json = json.dumps(parsed_result.get("skills", []))
-                breakdown_json = json.dumps(parsed_result.get("section_breakdown", {}))
-
                 if user_res:
-                    user_res.candidate_name = parsed_result.get("candidate_name")
-                    user_res.email = parsed_result.get("email")
-                    user_res.phone = parsed_result.get("phone")
-                    user_res.skills = skills_json
-                    user_res.predicted_category = parsed_result.get("predicted_category")
+                    user_res.filename = filename
+                    user_res.candidate_name = parsed_result.get("candidate_name") or "Candidate"
+                    user_res.category = parsed_result.get("predicted_category") or "INFORMATION-TECHNOLOGY"
                     user_res.ats_score = parsed_result.get("ats_score", 0.0)
-                    user_res.section_breakdown = breakdown_json
-                    user_res.raw_text_snippet = parsed_result.get("raw_text_snippet")
+                    user_res.parsed_json = json.dumps(parsed_result)
                 else:
                     new_res = ResumeModel(
                         user_id=current_user_id,
-                        candidate_name=parsed_result.get("candidate_name"),
-                        email=parsed_result.get("email"),
-                        phone=parsed_result.get("phone"),
-                        skills=skills_json,
-                        predicted_category=parsed_result.get("predicted_category"),
+                        filename=filename,
+                        candidate_name=parsed_result.get("candidate_name") or "Candidate",
+                        category=parsed_result.get("predicted_category") or "INFORMATION-TECHNOLOGY",
                         ats_score=parsed_result.get("ats_score", 0.0),
-                        section_breakdown=breakdown_json,
-                        raw_text_snippet=parsed_result.get("raw_text_snippet")
+                        parsed_json=json.dumps(parsed_result)
                     )
                     db.add(new_res)
                 db.commit()

@@ -25,6 +25,69 @@ def get_authorized_user_id(db, req):
     first_user = db.query(User).first()
     return first_user.id if first_user else 1
 
+def enrich_problem(q):
+    """Enriches problem with attempted counts, acceptance rates, tracks, and normalized keys."""
+    if not q:
+        return None
+    item = dict(q)
+    qid = item.get("questionId") or item.get("id", "")
+    item["id"] = qid
+    item["questionId"] = qid
+
+    # Starter code normalization (camelCase & snake_case)
+    if "starterCode" in item and "starter_code" not in item:
+        item["starter_code"] = item["starterCode"]
+    elif "starter_code" in item and "starterCode" not in item:
+        item["starterCode"] = item["starter_code"]
+
+    topic = item.get("topic", "Data Structures")
+    diff = item.get("difficulty", "Medium")
+
+    # Deterministic metrics matching HackerEarth / LeetCode style in screenshot
+    h = sum(ord(c) for c in (qid + item.get("title", "")))
+    if diff == "Easy":
+        attempts = 8.0 + (h % 150) / 10.0
+        acc = 55 + (h % 30)
+    elif diff == "Medium":
+        attempts = 3.5 + (h % 80) / 10.0
+        acc = 42 + (h % 28)
+    else:
+        attempts = 1.2 + (h % 40) / 10.0
+        acc = 24 + (h % 25)
+
+    item["attempted"] = f"{attempts:.1f}k"
+    item["acceptance"] = f"{acc}%"
+
+    t_lower = topic.lower()
+    if any(k in t_lower for k in ["math", "number", "geometry", "bit"]):
+        item["track"] = "Math"
+    elif any(k in t_lower for k in ["dynamic", "greedy", "backtrack", "sliding", "search", "sort"]):
+        item["track"] = "Algorithms"
+    elif any(k in t_lower for k in ["array", "tree", "linked", "stack", "queue", "heap", "graph", "hash"]):
+        item["track"] = "Data Structures"
+    elif any(k in t_lower for k in ["string", "basic", "syntax"]):
+        item["track"] = "Basic Programming"
+    elif diff == "Hard":
+        item["track"] = "Mock Assessments"
+    else:
+        item["track"] = "Codemonk"
+
+    raw_tags = item.get("tags", [])
+    if isinstance(raw_tags, str):
+        try:
+            raw_tags = json.loads(raw_tags)
+        except Exception:
+            raw_tags = [raw_tags]
+    tags_set = set(raw_tags)
+    tags_set.add(topic)
+    if "array" in t_lower:
+        tags_set.add("1-d Array")
+        tags_set.add("Arrays")
+    tags_set.add(item["track"])
+    item["tags"] = sorted(list(tags_set))
+
+    return item
+
 # =========================================================================
 # 1. QUESTIONS EXPLORATION APIS
 # =========================================================================
@@ -33,7 +96,7 @@ def get_authorized_user_id(db, req):
 @coding_bp.route("/problems", methods=["GET", "POST"])
 def get_questions_list():
     """
-    Returns curated coding problems filtered by topic, difficulty, language, or search term.
+    Returns curated coding problems filtered by topic, difficulty, language, track, or search term.
     Hidden test cases and solutions are strictly omitted.
     """
     if request.method == "POST":
@@ -42,14 +105,19 @@ def get_questions_list():
         difficulty = body.get("difficulty", "All")
         language = body.get("language", "All")
         search = body.get("search", "")
+        track = body.get("track", "All")
     else:
         topic = request.args.get("topic") or request.args.get("subject", "All")
         difficulty = request.args.get("difficulty", "All")
         language = request.args.get("language", "All")
         search = request.args.get("search", "")
+        track = request.args.get("track", "All")
 
     raw_list = filter_questions(topic=topic, difficulty=difficulty, language=language, search=search)
-    sanitized = [get_sanitized_question(q, include_solution=False) for q in raw_list]
+    sanitized = [enrich_problem(get_sanitized_question(q, include_solution=False)) for q in raw_list]
+
+    if track and track.lower() != "all":
+        sanitized = [q for q in sanitized if q.get("track", "").lower() == track.lower()]
 
     return jsonify({
         "count": len(sanitized),
@@ -60,7 +128,8 @@ def get_questions_list():
             "topic": topic,
             "difficulty": difficulty,
             "language": language,
-            "search": search
+            "search": search,
+            "track": track
         }
     }), 200
 
@@ -74,9 +143,10 @@ def get_single_question(question_id):
     if not q:
         return jsonify({"error": f"Coding question '{question_id}' not found."}), 404
 
-    sanitized = get_sanitized_question(q, include_solution=False)
+    sanitized = enrich_problem(get_sanitized_question(q, include_solution=False))
     return jsonify({
-        "question": sanitized
+        "question": sanitized,
+        "problem": sanitized
     }), 200
 
 # =========================================================================

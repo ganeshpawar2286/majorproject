@@ -18,6 +18,7 @@ from backend.routes_jobs import jobs_bp
 from backend.routes_interview import interview_bp
 from backend.routes_dashboard import dashboard_bp
 from backend.routes_coding import coding_bp
+from backend.routes_aptitude import aptitude_bp
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY
@@ -30,6 +31,7 @@ app.register_blueprint(jobs_bp, url_prefix="/api/jobs")
 app.register_blueprint(interview_bp, url_prefix="/api/interview")
 app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
 app.register_blueprint(coding_bp, url_prefix="/api/coding")
+app.register_blueprint(aptitude_bp, url_prefix="/api/aptitude")
 
 
 @app.route("/api/health", methods=["GET"])
